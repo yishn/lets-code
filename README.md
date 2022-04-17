@@ -1,2 +1,3 @@
-# lets-code
-The source code for my Let's Code series
+# Let's Code
+
+The source code for my Let's Code series.
