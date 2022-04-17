@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 
 thread_local! {
   static MINESWEEPER: RefCell<Minesweeper> =
-    RefCell::new(Minesweeper::new(10, 10, 30));
+    RefCell::new(Minesweeper::new(10, 10, 20));
 }
 
 #[wasm_bindgen(module = "/render.js")]
