@@ -13,18 +13,20 @@ fn random_usize(min: usize, max: usize) -> usize {
 
 pub type Vertex = (usize, usize);
 
+#[derive(Debug, Clone)]
 pub struct VertexInfo {
   pub has_mine: bool,
   pub flagged: bool,
   pub open: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum OpenResult {
   Mine,
   NoMine(u8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Minesweeper {
   width: usize,
   height: usize,
