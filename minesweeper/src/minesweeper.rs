@@ -7,8 +7,14 @@ extern "C" {
   fn random() -> f32;
 }
 
+#[cfg(target_family = "wasm")]
 fn random_usize(min: usize, max: usize) -> usize {
   (random() * ((max - min) as f32) + min as f32).floor() as usize
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn random_usize(min: usize, max: usize) -> usize {
+  fastrand::usize(min..max)
 }
 
 pub type Vertex = (usize, usize);
@@ -226,5 +232,18 @@ impl Minesweeper {
         acc.push('\n');
         acc
       })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::Minesweeper;
+
+  #[test]
+  fn test() {
+    let mut ms = Minesweeper::new(10, 10, 10);
+    ms.open((5, 5));
+
+    println!("{}", ms.print());
   }
 }
