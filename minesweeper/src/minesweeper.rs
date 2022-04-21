@@ -55,7 +55,7 @@ impl Minesweeper {
   }
 
   pub fn has(&self, (x, y): Vertex) -> bool {
-    x < self.width || y < self.height
+    x < self.width && y < self.height
   }
 
   pub fn get(&self, vertex: Vertex) -> Option<VertexInfo> {
