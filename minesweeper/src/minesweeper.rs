@@ -1,249 +1,172 @@
-use std::collections::HashSet;
-use wasm_bindgen::prelude::*;
+use crate::random::random_range;
+use std::{
+  collections::HashSet,
+  fmt::{Display, Write},
+};
 
-#[wasm_bindgen]
-extern "C" {
-  #[wasm_bindgen(js_namespace = Math)]
-  fn random() -> f32;
-}
+pub type Position = (usize, usize);
 
-#[cfg(target_family = "wasm")]
-fn random_usize(min: usize, max: usize) -> usize {
-  (random() * ((max - min) as f32) + min as f32).floor() as usize
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn random_usize(min: usize, max: usize) -> usize {
-  fastrand::usize(min..max)
-}
-
-pub type Vertex = (usize, usize);
-
-#[derive(Debug, Clone)]
-pub struct VertexInfo {
-  pub has_mine: bool,
-  pub flagged: bool,
-  pub open: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum OpenResult {
   Mine,
   NoMine(u8),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Minesweeper {
   width: usize,
   height: usize,
-  mines: HashSet<Vertex>,
-  flags: HashSet<Vertex>,
-  open_vertices: HashSet<Vertex>,
+  open_fields: HashSet<Position>,
+  mines: HashSet<Position>,
+  flagged_fields: HashSet<Position>,
   lost: bool,
+}
+
+impl Display for Minesweeper {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    for y in 0..self.height {
+      for x in 0..self.width {
+        let pos = (x, y);
+
+        if !self.open_fields.contains(&pos) {
+          if self.lost && self.mines.contains(&pos) {
+            f.write_str("💣 ")?;
+          } else if self.flagged_fields.contains(&pos) {
+            f.write_str("🚩 ")?;
+          } else {
+            f.write_str("🟪 ")?;
+          }
+        } else if self.mines.contains(&pos) {
+          f.write_str("💣 ")?;
+        } else {
+          let mine_count = self.neighboring_mines(pos);
+
+          if mine_count > 0 {
+            write!(f, " {} ", mine_count)?;
+          } else {
+            f.write_str("⬜ ")?;
+          }
+        }
+      }
+
+      f.write_char('\n')?;
+    }
+
+    Ok(())
+  }
 }
 
 impl Minesweeper {
   pub fn new(width: usize, height: usize, mine_count: usize) -> Minesweeper {
-    let mut mines = HashSet::new();
-
-    while mines.len() < mine_count {
-      mines.insert((random_usize(0, width), random_usize(0, height)));
-    }
-
     Minesweeper {
       width,
       height,
-      mines,
-      flags: HashSet::new(),
-      open_vertices: HashSet::new(),
+      open_fields: HashSet::new(),
+      mines: {
+        let mut mines = HashSet::new();
+
+        while mines.len() < mine_count {
+          mines.insert((random_range(0, width), random_range(0, height)));
+        }
+
+        mines
+      },
+      flagged_fields: HashSet::new(),
       lost: false,
     }
   }
 
-  pub fn has(&self, (x, y): Vertex) -> bool {
-    x < self.width && y < self.height
-  }
-
-  pub fn get(&self, vertex: Vertex) -> Option<VertexInfo> {
-    if !self.has(vertex) {
-      None
-    } else {
-      Some(VertexInfo {
-        has_mine: self.mines.contains(&vertex),
-        flagged: self.flags.contains(&vertex),
-        open: self.open_vertices.contains(&vertex),
-      })
-    }
-  }
-
-  pub fn neighbors(&self, (x, y): Vertex) -> impl Iterator<Item = Vertex> {
+  pub fn iter_neighbors(
+    &self,
+    (x, y): Position,
+  ) -> impl Iterator<Item = Position> {
     let width = self.width;
     let height = self.height;
 
-    (x.max(1) - 1..=(x + 1).min(width - 1)).flat_map(move |i| {
-      (y.max(1) - 1..=(y + 1).min(height - 1)).map(move |j| (i, j))
-    })
+    (x.max(1) - 1..=(x + 1).min(width - 1))
+      .flat_map(move |i| {
+        (y.max(1) - 1..=(y + 1).min(height - 1)).map(move |j| (i, j))
+      })
+      .filter(move |&pos| pos != (x, y))
   }
 
-  pub fn peek(&self, vertex: Vertex) -> Option<OpenResult> {
-    let info = self.get(vertex);
-
-    info.map(|info| {
-      if info.has_mine {
-        OpenResult::Mine
-      } else {
-        OpenResult::NoMine(
-          self
-            .neighbors(vertex)
-            .map(|n| self.get(n).unwrap().has_mine)
-            .map(|has_mine| if has_mine { 1 } else { 0 })
-            .sum(),
-        )
-      }
-    })
+  pub fn neighboring_mines(&self, pos: Position) -> u8 {
+    self
+      .iter_neighbors(pos)
+      .filter(|pos| self.mines.contains(pos))
+      .count() as u8
   }
 
-  pub fn open(&mut self, vertex: Vertex) -> Option<OpenResult> {
-    let info = self.get(vertex);
-    let open = info.as_ref().map(|info| info.open).unwrap_or(false);
-    let flagged = info.as_ref().map(|info| info.flagged).unwrap_or(true);
+  pub fn open(&mut self, pos: Position) -> Option<OpenResult> {
+    if self.open_fields.contains(&pos) {
+      let mine_count = self.neighboring_mines(pos);
+      let flag_count = self
+        .iter_neighbors(pos)
+        .filter(|neighbor| self.flagged_fields.contains(neighbor))
+        .count() as u8;
 
-    if self.lost || flagged {
-      return None;
-    }
-
-    let result = self.peek(vertex);
-
-    if result.is_some() {
-      self.open_vertices.insert(vertex);
-    }
-
-    match result {
-      Some(OpenResult::Mine) => {
-        self.lost = true;
-      }
-      Some(OpenResult::NoMine(0)) => {
-        // Open all neighboring fields
-
-        for neighbor in self.neighbors(vertex) {
-          if !self.get(neighbor).unwrap().open {
+      if mine_count == flag_count {
+        for neighbor in self.iter_neighbors(pos) {
+          if !self.flagged_fields.contains(&neighbor)
+            && !self.open_fields.contains(&neighbor)
+          {
             self.open(neighbor);
           }
         }
       }
-      Some(OpenResult::NoMine(mines)) if open => {
-        let flagged_neighbor_count = self
-          .neighbors(vertex)
-          .map(|neighbor| self.get(neighbor).unwrap())
-          .filter(|info| info.flagged && !info.open)
-          .count() as u8;
 
-        if flagged_neighbor_count == mines {
-          // Open up all neighboring fields
+      return None;
+    }
 
-          for neighbor in self.neighbors(vertex) {
-            if !self.get(neighbor).unwrap().open {
-              self.open(neighbor);
-            }
+    if self.lost || self.flagged_fields.contains(&pos) {
+      return None;
+    }
+
+    self.open_fields.insert(pos);
+
+    let is_mine = self.mines.contains(&pos);
+
+    if is_mine {
+      self.lost = true;
+      Some(OpenResult::Mine)
+    } else {
+      let mine_count = self.neighboring_mines(pos);
+
+      if mine_count == 0 {
+        for neighbor in self.iter_neighbors(pos) {
+          if !self.open_fields.contains(&neighbor) {
+            self.open(neighbor);
           }
         }
       }
-      _ => {}
-    }
 
-    result
+      Some(OpenResult::NoMine(mine_count))
+    }
   }
 
-  pub fn flag(&mut self, vertex: Vertex) -> bool {
-    if self.lost || self.get(vertex).map(|info| info.open).unwrap_or(true) {
-      return false;
+  pub fn toggle_flag(&mut self, pos: Position) {
+    if self.lost || self.open_fields.contains(&pos) {
+      return;
     }
 
-    if self.has(vertex) {
-      self.flags.insert(vertex);
-      true
+    if self.flagged_fields.contains(&pos) {
+      self.flagged_fields.remove(&pos);
     } else {
-      false
+      self.flagged_fields.insert(pos);
     }
-  }
-
-  pub fn unflag(&mut self, vertex: Vertex) -> bool {
-    if self.lost {
-      return false;
-    }
-
-    if self.has(vertex) {
-      self.flags.remove(&vertex);
-      true
-    } else {
-      false
-    }
-  }
-
-  pub fn print(&self) -> String {
-    (0..self.height)
-      .map(|y| {
-        (0..self.width)
-          .map(move |x| (x, y))
-          .map(|vertex| (vertex, self.get(vertex).unwrap()))
-          .map(|(vertex, info)| {
-            if !self.lost {
-              if info.flagged {
-                "🚩".to_string()
-              } else if info.open {
-                match self.peek(vertex).unwrap() {
-                  OpenResult::Mine => "💣".to_string(),
-                  OpenResult::NoMine(mines) => {
-                    if mines > 0 {
-                      format!(" {}", mines)
-                    } else {
-                      "⬜".to_string()
-                    }
-                  }
-                }
-              } else {
-                "🟪".to_string()
-              }
-            } else {
-              match self.peek(vertex).unwrap() {
-                OpenResult::Mine => "💣".to_string(),
-                OpenResult::NoMine(mines) => {
-                  if info.open {
-                    if mines > 0 {
-                      format!(" {}", mines)
-                    } else {
-                      "⬜".to_string()
-                    }
-                  } else {
-                    "🟪".to_string()
-                  }
-                }
-              }
-            }
-          })
-          .fold(String::new(), |mut acc, ch| {
-            acc.push_str(&ch);
-            acc.push(' ');
-            acc
-          })
-      })
-      .fold(String::new(), |mut acc, row| {
-        acc.push_str(&row);
-        acc.push('\n');
-        acc
-      })
   }
 }
 
 #[cfg(test)]
 mod tests {
-  use super::Minesweeper;
+  use crate::Minesweeper;
 
   #[test]
   fn test() {
-    let mut ms = Minesweeper::new(10, 10, 10);
+    let mut ms = Minesweeper::new(10, 10, 5);
     ms.open((5, 5));
+    ms.toggle_flag((6, 6));
+    ms.open((6, 6));
 
-    println!("{}", ms.print());
+    println!("{}", ms);
   }
 }
