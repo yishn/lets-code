@@ -23,4 +23,4 @@ Now, start your static file server and open `index.html`:
 $ serve
 ```
 
-[video]: https://youtube.com
+[video]: https://www.youtube.com/watch?v=0ywizYLPV00
