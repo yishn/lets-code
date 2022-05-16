@@ -65,6 +65,8 @@ impl SnakeGame {
     self.direction = self.next_direction;
 
     let (x, y) = self.snake[0];
+    // WARNING: There's no explicit underflow handling here
+    // (will panic in debug build)
     let new_head = match self.direction {
       Direction::Up => (x, y - 1),
       Direction::Right => (x + 1, y),
