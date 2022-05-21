@@ -80,7 +80,7 @@ pub fn render() {
       .style()
       .set_property(
         "grid-template",
-        &format!("repeat({}, auto) / repeat({}, auto)", width, height),
+        &format!("repeat({}, auto) / repeat({}, auto)", height, width),
       )
       .unwrap_throw();
 
