@@ -1,0 +1,17 @@
+[package]
+name = "tetris"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+getrandom = { version = "0.2.7", features = ["js"] }
+js-sys = "0.3.58"
+rand = "0.8.5"
+wasm-bindgen = "0.2.81"
+wasm-react = "0.3.2"
+web-sys = { version = "0.3.58", features = ["Window", "HtmlElement"] }
