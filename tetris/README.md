@@ -1,4 +1,4 @@
-# Snake
+# Tetris
 
 [<img src="./thumbnail.png" alt="Thumbnail" width="300" />][video]<br/> [_Watch
 Video_][video]
