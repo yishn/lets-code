@@ -15,7 +15,7 @@ $ wasm-pack build --target web
 ```
 
 To run this project, you need a static file server. You can install `sfz` with
-npm:
+cargo:
 
 ```
 $ cargo install sfz
