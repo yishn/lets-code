@@ -264,12 +264,293 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
-  use crate::doppelkopf::game::Game;
+  use super::*;
+  use crate::doppelkopf::card::{Rank, Suit};
+
+  fn make_game(players: Vec<Player>) -> Game {
+    Game {
+      players,
+      wedding: None,
+      ..Game::new()
+    }
+  }
+
+  fn player_with_cards(cards: Vec<Card>) -> Player {
+    Player {
+      team: Team::Contra,
+      cards,
+      won_tricks: vec![],
+    }
+  }
 
   #[test]
-  fn test() {
-    let game = Game::new();
+  fn rejects_play_from_wrong_player() {
+    let game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
 
-    println!("{:#?}", game);
+    let action = Action::PlayCard {
+      player: PlayerIndex(1),
+      card: Card::new(Suit::Club, Rank::Nine),
+    };
+
+    assert_eq!(
+      game.can_dispatch(&action),
+      Some(InvalidDispatch::InvalidPlayer)
+    );
+  }
+
+  #[test]
+  fn rejects_card_not_in_current_players_hand() {
+    let game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+
+    let action = Action::PlayCard {
+      player: PlayerIndex(0),
+      card: Card::new(Suit::Spade, Rank::Ace),
+    };
+
+    assert_eq!(
+      game.can_dispatch(&action),
+      Some(InvalidDispatch::InvalidCard)
+    );
+  }
+
+  #[test]
+  fn rejects_play_that_breaks_follow_suit() {
+    let mut game = make_game(vec![
+      player_with_cards(vec![]),
+      player_with_cards(vec![
+        Card::new(Suit::Club, Rank::Ten),
+        Card::new(Suit::Spade, Rank::Ace),
+      ]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+    game.trick = vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
+
+    let action = Action::PlayCard {
+      player: PlayerIndex(1),
+      card: Card::new(Suit::Spade, Rank::Ace),
+    };
+
+    assert_eq!(
+      game.can_dispatch(&action),
+      Some(InvalidDispatch::InvalidCard)
+    );
+  }
+
+  #[test]
+  fn ends_game_and_declares_re_winners_when_points_exceed_threshold() {
+    let mut game = make_game(vec![
+      Player {
+        team: Team::Re,
+        cards: vec![],
+        won_tricks: vec![
+          (PlayerIndex(0), Card::new(Suit::Heart, Rank::Ace));
+          12
+        ]
+        .into_iter()
+        .map(|card| vec![card])
+        .collect(),
+      },
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+
+    game.dispatch(Action::EndGame).unwrap();
+
+    assert_eq!(game.game_winners, vec![PlayerIndex(0)]);
+  }
+
+  #[test]
+  fn rejects_end_game_when_players_still_have_cards() {
+    let game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+
+    assert_eq!(
+      game.can_dispatch(&Action::EndGame),
+      Some(InvalidDispatch::InvalidEnd)
+    );
+  }
+
+  #[test]
+  fn rejects_play_after_game_has_already_finished() {
+    let game = make_game(vec![
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+    let mut finished_game = game;
+    finished_game.game_winners = vec![PlayerIndex(0)];
+
+    let action = Action::PlayCard {
+      player: PlayerIndex(0),
+      card: Card::new(Suit::Club, Rank::Nine),
+    };
+
+    assert_eq!(
+      finished_game.can_dispatch(&action),
+      Some(InvalidDispatch::GameEnded)
+    );
+  }
+
+  #[test]
+  fn allows_trump_play_when_no_follow_suit_cards_remain() {
+    let mut game = make_game(vec![
+      player_with_cards(vec![]),
+      player_with_cards(vec![Card::new(Suit::Heart, Rank::Ten)]),
+      player_with_cards(vec![]),
+      player_with_cards(vec![]),
+    ]);
+    game.trick = vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
+
+    let action = Action::PlayCard {
+      player: PlayerIndex(1),
+      card: Card::new(Suit::Heart, Rank::Ten),
+    };
+
+    assert_eq!(game.can_dispatch(&action), None);
+  }
+
+  #[test]
+  fn dispatching_a_full_trick_moves_cards_to_the_winner() {
+    let mut game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Ten)]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Queen)]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::King)]),
+    ]);
+
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(0),
+        card: Card::new(Suit::Club, Rank::Nine),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(1),
+        card: Card::new(Suit::Club, Rank::Ten),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(2),
+        card: Card::new(Suit::Club, Rank::Queen),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(3),
+        card: Card::new(Suit::Club, Rank::King),
+      })
+      .unwrap();
+
+    assert!(game.last_winner.is_some());
+    assert_eq!(game.players[2].won_tricks.len(), 1);
+    assert!(
+      game.players[2]
+        .won_tricks
+        .first()
+        .is_some_and(|trick| trick.len() == 4)
+    );
+  }
+
+  #[test]
+  fn wedding_reassigns_the_winning_player_to_re_when_they_are_not_the_declarer()
+  {
+    let mut game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![Card::new(Suit::Heart, Rank::Ten)]),
+      player_with_cards(vec![
+        Card::new(Suit::Club, Rank::Queen),
+        Card::new(Suit::Club, Rank::Queen),
+      ]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Ten)]),
+    ]);
+    game.wedding = Some(PlayerIndex(2));
+
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(0),
+        card: Card::new(Suit::Club, Rank::Nine),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(1),
+        card: Card::new(Suit::Heart, Rank::Ten),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(2),
+        card: Card::new(Suit::Club, Rank::Queen),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(3),
+        card: Card::new(Suit::Club, Rank::Ten),
+      })
+      .unwrap();
+
+    assert_eq!(game.players[1].team, Team::Re);
+  }
+
+  #[test]
+  fn wedding_keeps_the_declarer_on_their_original_team_when_they_win_the_trick()
+  {
+    let mut game = make_game(vec![
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::Ace)]),
+      player_with_cards(vec![
+        Card::new(Suit::Club, Rank::Queen),
+        Card::new(Suit::Club, Rank::Queen),
+      ]),
+      player_with_cards(vec![Card::new(Suit::Club, Rank::King)]),
+    ]);
+    game.wedding = Some(PlayerIndex(2));
+
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(0),
+        card: Card::new(Suit::Club, Rank::Nine),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(1),
+        card: Card::new(Suit::Club, Rank::Ace),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(2),
+        card: Card::new(Suit::Club, Rank::Queen),
+      })
+      .unwrap();
+    game
+      .dispatch(Action::PlayCard {
+        player: PlayerIndex(3),
+        card: Card::new(Suit::Club, Rank::King),
+      })
+      .unwrap();
+
+    assert_eq!(game.players[2].team, Team::Contra);
   }
 }
