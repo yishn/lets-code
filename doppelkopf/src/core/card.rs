@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ops::Deref};
+use std::{cmp::Ordering, fmt::Display, ops::Deref};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
@@ -24,6 +24,20 @@ impl Rank {
   }
 }
 
+impl Display for Rank {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Rank::Nine => "9",
+      Rank::Jack => "J",
+      Rank::Queen => "Q",
+      Rank::King => "K",
+      Rank::Ten => "10",
+      Rank::Ace => "A",
+    }
+    .fmt(f)
+  }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Suit {
   Club,
@@ -35,6 +49,18 @@ pub enum Suit {
 impl Suit {
   pub fn iter() -> impl Iterator<Item = Suit> {
     vec![Suit::Club, Suit::Spade, Suit::Heart, Suit::Diamond].into_iter()
+  }
+}
+
+impl Display for Suit {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Suit::Club => "♣",
+      Suit::Spade => "♠",
+      Suit::Heart => "♥",
+      Suit::Diamond => "♦",
+    }
+    .fmt(f)
   }
 }
 
@@ -59,6 +85,12 @@ impl Card {
   }
 }
 
+impl Display for Card {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}{}", self.suit, self.rank)
+  }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct OrderedCard<'a> {
   card: Card,
@@ -80,12 +112,6 @@ impl<'a> Deref for OrderedCard<'a> {
 
   fn deref(&self) -> &Self::Target {
     &self.card
-  }
-}
-
-impl<'a> From<OrderedCard<'a>> for Card {
-  fn from(value: OrderedCard<'a>) -> Self {
-    value.card
   }
 }
 
@@ -116,5 +142,36 @@ impl<'a> PartialOrd for OrderedCard<'a> {
         }
       }
     }
+  }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct TotalOrderedCard<'a>(OrderedCard<'a>);
+
+impl<'a> TotalOrderedCard<'a> {
+  pub fn new(card: Card, trumps: &'a [Card]) -> Self {
+    Self(OrderedCard::new(card, trumps))
+  }
+}
+
+impl<'a> Deref for TotalOrderedCard<'a> {
+  type Target = OrderedCard<'a>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<'a> PartialOrd for TotalOrderedCard<'a> {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(&other))
+  }
+}
+
+impl<'a> Ord for TotalOrderedCard<'a> {
+  fn cmp(&self, other: &Self) -> Ordering {
+    self.0.partial_cmp(&other.0).unwrap_or_else(|| {
+      (self.0.suit, self.0.rank).cmp(&(other.0.suit, other.0.rank))
+    })
   }
 }
