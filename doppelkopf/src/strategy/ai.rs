@@ -1,26 +1,34 @@
-use crate::core::Action;
-use crate::core::Game;
-use crate::core::PlayerIndex;
-use crate::strategy::describe::describe_game_state;
-use crate::strategy::{GenerateDispatchError, Strategy};
+use crate::{
+  core::{Action, Game, PlayerIndex},
+  strategy::{GenerateDispatchError, Strategy, describe::describe_game_state},
+};
 use anyhow::Result;
-use rig::client::AgentClientExt;
-use rig::client::ProviderClient;
-use rig::completion::TypedPrompt;
-use rig::memory::InMemoryConversationMemory;
-use rig::providers::openai;
+use rig::{
+  Agent,
+  client::{AgentClientExt, ProviderClient},
+  completion::TypedPrompt,
+  memory::InMemoryConversationMemory,
+  providers::openai::{self, responses_api::GenericResponsesCompletionModel},
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::fmt::Debug;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AIStrategy {
   player: PlayerIndex,
+  agent: Agent<GenericResponsesCompletionModel>,
 }
 
 impl AIStrategy {
-  pub fn new(player: PlayerIndex) -> Self {
-    Self { player }
+  pub fn new(player: PlayerIndex) -> Result<Self> {
+    let agent = openai::Client::from_env()?
+      .agent("gpt-5.6-terra")
+      .preamble("You are a Doppelkopf player.")
+      .memory(InMemoryConversationMemory::new())
+      .conversation("game_history")
+      .build();
+
+    Ok(Self { player, agent })
   }
 }
 
@@ -31,13 +39,6 @@ impl Strategy for AIStrategy {
     } else {
       let prompt = describe_game_state(self.player, &game);
 
-      // Build an agent: a model plus a system prompt (the "preamble").
-      let agent = openai::Client::from_env()?
-        .agent("gpt-5.6-luna")
-        .preamble("You are a Doppelkopf player.")
-        .memory(InMemoryConversationMemory::new())
-        .build();
-
       let mut retry = false;
 
       for _ in 0..3 {
@@ -47,13 +48,12 @@ impl Strategy for AIStrategy {
         }
 
         // Send a prompt and await the model's reply.
-        let response: UsizeResponse = agent
+        let response: UsizeResponse = self.agent
           .prompt_typed(if !retry {
             prompt.clone()
           } else {
             format!("The card you chose was invalid. Please choose another one.\n\n{}", prompt)
           })
-          .conversation(&format!("player-{}", self.player.0))
           .await?;
 
         let card = game
@@ -78,41 +78,4 @@ impl Strategy for AIStrategy {
       Err(GenerateDispatchError::InvalidActionGenerated.into())
     }
   }
-}
-
-#[test]
-fn describe_test() {
-  let game = Game::new();
-  let strategy = AIStrategy {
-    player: PlayerIndex(0),
-  };
-
-  println!("{}", describe_game_state(strategy.player, &game));
-}
-
-#[tokio::test]
-async fn test() -> Result<()> {
-  let mut game = Game::new();
-
-  let strategies = (0..4)
-    .map(|i| AIStrategy {
-      player: PlayerIndex(i),
-    })
-    .collect::<Vec<_>>();
-
-  for strategy in &strategies {
-    let prompt = describe_game_state(strategy.player, &game);
-
-    println!("{}", prompt);
-
-    let action = strategy.generate_dispatch(&game).await?;
-
-    println!("{:#?}", action);
-
-    game.dispatch(action)?;
-  }
-
-  println!("{:#?}", game);
-
-  Ok(())
 }

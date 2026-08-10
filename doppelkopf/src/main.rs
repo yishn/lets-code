@@ -9,7 +9,7 @@ mod strategy;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  #[derive(Debug, Clone)]
+  #[derive(Clone)]
   enum GenericStrategy {
     Human(HumanStrategy),
     AI(AIStrategy),
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
   }
 
   let human_stategy = HumanStrategy::new(PlayerIndex(0));
-  let ai_strategies = (1..4).map(|i| AIStrategy::new(PlayerIndex(i)));
+  let ai_strategies = (1..4).map(|i| AIStrategy::new(PlayerIndex(i)).unwrap());
   let strategies = [GenericStrategy::Human(human_stategy)]
     .into_iter()
     .chain(ai_strategies.into_iter().map(GenericStrategy::AI))
