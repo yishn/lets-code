@@ -23,13 +23,13 @@ fn describe_trumps(player: PlayerIndex, game: &Game) -> String {
 fn describe_last_trick(player: PlayerIndex, game: &Game) -> String {
   match (game.last_winner(), game.last_trick()) {
     (Some(last_winner), Some(last_trick)) => format!(
-      "The last trick was won by player {}. He won the following trick:\n{}",
+      "Last trick was won by player {}. He won the following trick:\n{}",
       last_winner,
       last_trick
         .iter()
         .enumerate()
         .map(|(i, (player, card))| {
-          format!("{}. Player {} played {}", i + 1, player, card)
+          format!("{: >2}. Player {} played {}", i + 1, player, card)
         })
         .reduce(|mut acc, x| {
           acc += "\n";
@@ -61,7 +61,7 @@ fn describe_current_trick(player: PlayerIndex, game: &Game) -> String {
       .iter()
       .enumerate()
       .map(|(i, (player, card))| {
-        format!("{}. Player {} played {}", i + 1, player, card)
+        format!("{: >2}. Player {} played {}", i + 1, player, card)
       })
       .reduce(|mut acc, x| {
         acc += "\n";
@@ -77,13 +77,13 @@ fn describe_player(player: PlayerIndex, game: &Game) -> String {
 
   if let Some(player) = player {
     format!(
-      "It’s your turn. You are team {}. Choose one of the cards on your hand to play. Respond with the number of the corresponding card:\n{}",
+      "It’s your turn. You are team {}. Choose one of the cards on your hand to play.\nRespond with the number of the corresponding card:\n{}",
       player.team(),
       player
         .cards()
         .iter()
         .enumerate()
-        .map(|(i, card)| format!("{}. {}", i + 1, card))
+        .map(|(i, card)| format!("{: >2}. {}", i + 1, card))
         .reduce(|mut acc, x| {
           acc += "\n";
           acc += &x;
@@ -117,14 +117,21 @@ pub fn describe_game_state(player: PlayerIndex, game: &Game) -> String {
         .sum::<isize>()
     )
   } else {
-    format!(
-      "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}",
+    [
       describe_players(player, game),
       describe_trumps(player, game),
       describe_last_trick(player, game),
       describe_wedding(player, game),
       describe_current_trick(player, game),
-      describe_player(player, game)
-    )
+      describe_player(player, game),
+    ]
+    .into_iter()
+    .filter(|msg| !msg.is_empty())
+    .reduce(|mut acc, x| {
+      acc += "\n\n";
+      acc += &x;
+      acc
+    })
+    .unwrap_or_default()
   }
 }

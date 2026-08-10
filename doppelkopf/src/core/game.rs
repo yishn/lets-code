@@ -106,11 +106,11 @@ impl Game {
     let mut cards = Card::iter().chain(Card::iter()).collect::<Vec<_>>();
     cards.shuffle(&mut rand::rng());
 
-    let trumps = vec![Card::new(Suit::Heart, Rank::Ten)]
+    let trumps = [Card::new(Suit::Heart, Rank::Ten)]
       .into_iter()
       .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Queen)))
       .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Jack)))
-      .chain(vec![
+      .chain([
         Card::new(Suit::Diamond, Rank::Ace),
         Card::new(Suit::Diamond, Rank::Ten),
         Card::new(Suit::Diamond, Rank::King),

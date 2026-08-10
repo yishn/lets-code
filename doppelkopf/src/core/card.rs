@@ -12,7 +12,7 @@ pub enum Rank {
 
 impl Rank {
   pub fn iter() -> impl Iterator<Item = Rank> {
-    vec![
+    [
       Rank::Nine,
       Rank::Jack,
       Rank::Queen,
@@ -48,7 +48,7 @@ pub enum Suit {
 
 impl Suit {
   pub fn iter() -> impl Iterator<Item = Suit> {
-    vec![Suit::Club, Suit::Spade, Suit::Heart, Suit::Diamond].into_iter()
+    [Suit::Club, Suit::Spade, Suit::Heart, Suit::Diamond].into_iter()
   }
 }
 
