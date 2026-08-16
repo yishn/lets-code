@@ -1,6 +1,10 @@
 use super::card::Card;
-use crate::doppelkopf::card::{OrderedCard, Rank, Suit};
+use crate::core::{
+  TotalOrderedCard,
+  card::{OrderedCard, Rank, Suit},
+};
 use rand::seq::SliceRandom;
+use std::{error::Error, fmt::Display};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Team {
@@ -8,8 +12,24 @@ pub enum Team {
   Contra,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PlayerIndex(usize);
+impl Display for Team {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Team::Re => "Re",
+      Team::Contra => "Contra",
+    }
+    .fmt(f)
+  }
+}
+
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PlayerIndex(pub usize);
+
+impl Display for PlayerIndex {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "#{}", self.0 + 1)
+  }
+}
 
 #[derive(Debug, Clone)]
 pub struct Player {
@@ -33,27 +53,50 @@ impl Player {
       won_tricks: vec![],
     }
   }
+
+  pub fn team(&self) -> Team {
+    self.team
+  }
+
+  pub fn cards(&self) -> &[Card] {
+    &self.cards
+  }
+
+  pub fn points(&self) -> isize {
+    self
+      .won_tricks
+      .iter()
+      .flat_map(|x| x.iter().map(|(_, card)| card.points()))
+      .sum::<isize>()
+  }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
   PlayCard { player: PlayerIndex, card: Card },
-  EndGame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InvalidDispatch {
+pub enum DispatchError {
   InvalidPlayer,
   InvalidCard,
-  InvalidEnd,
   GameEnded,
 }
+
+impl Display for DispatchError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    std::fmt::Debug::fmt(self, f)
+  }
+}
+
+impl Error for DispatchError {}
 
 #[derive(Debug, Clone)]
 pub struct Game {
   players: Vec<Player>,
   trumps: Vec<Card>,
-  wedding: Option<PlayerIndex>,
-  trick: Vec<(PlayerIndex, Card)>,
+  wedding_declarer: Option<PlayerIndex>,
+  current_trick: Vec<(PlayerIndex, Card)>,
   last_winner: Option<PlayerIndex>,
   game_winners: Vec<PlayerIndex>,
 }
@@ -63,31 +106,37 @@ impl Game {
     let mut cards = Card::iter().chain(Card::iter()).collect::<Vec<_>>();
     cards.shuffle(&mut rand::rng());
 
+    let trumps = [Card::new(Suit::Heart, Rank::Ten)]
+      .into_iter()
+      .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Queen)))
+      .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Jack)))
+      .chain([
+        Card::new(Suit::Diamond, Rank::Ace),
+        Card::new(Suit::Diamond, Rank::Ten),
+        Card::new(Suit::Diamond, Rank::King),
+        Card::new(Suit::Diamond, Rank::Nine),
+      ])
+      .collect::<Vec<_>>();
+
     let hand_count = cards.len() / 4;
     let players = (0..4)
       .map(|i| {
-        Player::new(
-          cards[i * hand_count..(i + 1) * hand_count]
+        Player::new({
+          let mut cards = cards[i * hand_count..(i + 1) * hand_count]
             .iter()
             .copied()
-            .collect(),
-        )
+            .collect::<Vec<_>>();
+
+          cards.sort_by_key(|&card| TotalOrderedCard::new(card, &trumps));
+          cards.reverse();
+          cards
+        })
       })
       .collect::<Vec<_>>();
 
     Self {
-      trumps: vec![Card::new(Suit::Heart, Rank::Ten)]
-        .into_iter()
-        .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Queen)))
-        .chain(Suit::iter().map(|suit| Card::new(suit, Rank::Jack)))
-        .chain(vec![
-          Card::new(Suit::Diamond, Rank::Ace),
-          Card::new(Suit::Diamond, Rank::Ten),
-          Card::new(Suit::Diamond, Rank::King),
-          Card::new(Suit::Diamond, Rank::Nine),
-        ])
-        .collect(),
-      wedding: players
+      trumps,
+      wedding_declarer: players
         .iter()
         .position(|player| {
           player
@@ -99,31 +148,67 @@ impl Game {
         })
         .map(|i| PlayerIndex(i)),
       players,
-      trick: vec![],
+      current_trick: vec![],
       last_winner: None,
       game_winners: vec![],
     }
   }
 
-  pub fn can_dispatch(&self, action: &Action) -> Option<InvalidDispatch> {
+  pub fn trumps(&self) -> &[Card] {
+    &self.trumps
+  }
+
+  pub fn player(&self, player: PlayerIndex) -> Option<&Player> {
+    self.players.get(player.0)
+  }
+
+  pub fn wedding_declarer(&self) -> Option<PlayerIndex> {
+    self.wedding_declarer
+  }
+
+  pub fn current_trick(&self) -> &[(PlayerIndex, Card)] {
+    &self.current_trick
+  }
+
+  pub fn last_winner(&self) -> Option<PlayerIndex> {
+    self.last_winner
+  }
+
+  pub fn last_trick(&self) -> Option<&[(PlayerIndex, Card)]> {
+    self
+      .last_winner
+      .and_then(|player| self.player(player))
+      .and_then(|player| player.won_tricks.last())
+      .map(|trick| &**trick)
+  }
+
+  pub fn game_winners(&self) -> &[PlayerIndex] {
+    &self.game_winners
+  }
+
+  pub fn has_ended(&self) -> bool {
+    self.game_winners.len() > 0
+  }
+
+  pub fn can_dispatch(&self, action: &Action) -> Option<DispatchError> {
     match action {
       Action::PlayCard { player, card } => {
         // Check game end
 
         if self.game_winners.len() > 0 {
-          return Some(InvalidDispatch::GameEnded);
+          return Some(DispatchError::GameEnded);
         }
 
         // 1. Check player turn
 
         let current_player = self
-          .trick
+          .current_trick
           .last()
           .map(|last| PlayerIndex((last.0.0 + 1) % 4))
           .unwrap_or_else(|| self.last_winner.unwrap_or(PlayerIndex(0)));
 
         if player != &current_player {
-          return Some(InvalidDispatch::InvalidPlayer);
+          return Some(DispatchError::InvalidPlayer);
         }
 
         // 2. Card existence
@@ -131,12 +216,12 @@ impl Game {
         let cards = &self.players[player.0].cards;
 
         if !cards.contains(card) {
-          return Some(InvalidDispatch::InvalidCard);
+          return Some(DispatchError::InvalidCard);
         }
 
         // 3. Card should follow suit
 
-        if let Some(&(_, lead_card)) = self.trick.first() {
+        if let Some(&(_, lead_card)) = self.current_trick.first() {
           let lead_card = OrderedCard::new(lead_card, &self.trumps);
           let card = OrderedCard::new(*card, &self.trumps);
 
@@ -146,7 +231,7 @@ impl Game {
               .iter()
               .any(|card| OrderedCard::new(*card, &self.trumps).is_trump())
           {
-            return Some(InvalidDispatch::InvalidCard);
+            return Some(DispatchError::InvalidCard);
           } else if !lead_card.is_trump()
             && (card.is_trump() || lead_card.suit != card.suit)
             && cards.iter().any(|card| {
@@ -154,13 +239,8 @@ impl Game {
                 && card.suit == lead_card.suit
             })
           {
-            return Some(InvalidDispatch::InvalidCard);
+            return Some(DispatchError::InvalidCard);
           }
-        }
-      }
-      Action::EndGame => {
-        if self.players.iter().any(|player| player.cards.len() > 0) {
-          return Some(InvalidDispatch::InvalidEnd);
         }
       }
     }
@@ -168,7 +248,7 @@ impl Game {
     None
   }
 
-  pub fn dispatch(&mut self, action: Action) -> Result<(), InvalidDispatch> {
+  pub fn dispatch(&mut self, action: Action) -> Result<(), DispatchError> {
     if let Some(err) = self.can_dispatch(&action) {
       return Err(err);
     }
@@ -177,7 +257,7 @@ impl Game {
       Action::PlayCard { player, card } => {
         // Add card to trick
 
-        self.trick.push((player, card));
+        self.current_trick.push((player, card));
 
         // Remove card from player's hand
 
@@ -190,11 +270,11 @@ impl Game {
 
         // Handle won trick if applicable
 
-        if self.trick.len() == self.players.len() {
+        if self.current_trick.len() == self.players.len() {
           // Determine winner
 
           let winner = self
-            .trick
+            .current_trick
             .iter()
             .map(|(player, card)| {
               (*player, OrderedCard::new(*card, &self.trumps))
@@ -213,48 +293,46 @@ impl Game {
 
           // Move trick to winner
 
-          let trick = std::mem::take(&mut self.trick);
+          let trick = std::mem::take(&mut self.current_trick);
           self.players[winner.0].won_tricks.push(trick);
 
           // Handle wedding
 
-          if let Some(declarer) = self.wedding {
+          if let Some(declarer) = self.wedding_declarer {
             if winner != declarer {
               self.players[winner.0].team = Team::Re;
+              self.wedding_declarer = None;
             }
           }
         }
-      }
-      Action::EndGame => {
-        let mut points = [Team::Re, Team::Contra].into_iter().map(|team| {
-          self
+
+        // Handle game end
+
+        if self.players.iter().all(|player| player.cards.len() == 0) {
+          let mut points = [Team::Re, Team::Contra].into_iter().map(|team| {
+            self
+              .players
+              .iter()
+              .filter(move |player| player.team == team)
+              .map(|player| player.points())
+              .sum::<isize>()
+          });
+
+          let re_points = points.next().unwrap();
+          let winning_team = if re_points > 120 {
+            Team::Re
+          } else {
+            Team::Contra
+          };
+
+          self.game_winners = self
             .players
             .iter()
-            .filter(move |player| player.team == team)
-            .map(|player| {
-              player
-                .won_tricks
-                .iter()
-                .flat_map(|x| x.iter().map(|(_, card)| card.points()))
-                .sum::<isize>()
-            })
-            .sum::<isize>()
-        });
-
-        let re_points = points.next().unwrap();
-        let winning_team = if re_points > 120 {
-          Team::Re
-        } else {
-          Team::Contra
-        };
-
-        self.game_winners = self
-          .players
-          .iter()
-          .enumerate()
-          .filter(move |(_, player)| player.team == winning_team)
-          .map(|(i, _)| PlayerIndex(i))
-          .collect();
+            .enumerate()
+            .filter(move |(_, player)| player.team == winning_team)
+            .map(|(i, _)| PlayerIndex(i))
+            .collect();
+        }
       }
     }
 
@@ -265,12 +343,12 @@ impl Game {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::doppelkopf::card::{Rank, Suit};
+  use crate::core::card::{Rank, Suit};
 
   fn make_game(players: Vec<Player>) -> Game {
     Game {
       players,
-      wedding: None,
+      wedding_declarer: None,
       ..Game::new()
     }
   }
@@ -299,7 +377,7 @@ mod tests {
 
     assert_eq!(
       game.can_dispatch(&action),
-      Some(InvalidDispatch::InvalidPlayer)
+      Some(DispatchError::InvalidPlayer)
     );
   }
 
@@ -317,10 +395,7 @@ mod tests {
       card: Card::new(Suit::Spade, Rank::Ace),
     };
 
-    assert_eq!(
-      game.can_dispatch(&action),
-      Some(InvalidDispatch::InvalidCard)
-    );
+    assert_eq!(game.can_dispatch(&action), Some(DispatchError::InvalidCard));
   }
 
   #[test]
@@ -334,56 +409,15 @@ mod tests {
       player_with_cards(vec![]),
       player_with_cards(vec![]),
     ]);
-    game.trick = vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
+    game.current_trick =
+      vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
 
     let action = Action::PlayCard {
       player: PlayerIndex(1),
       card: Card::new(Suit::Spade, Rank::Ace),
     };
 
-    assert_eq!(
-      game.can_dispatch(&action),
-      Some(InvalidDispatch::InvalidCard)
-    );
-  }
-
-  #[test]
-  fn ends_game_and_declares_re_winners_when_points_exceed_threshold() {
-    let mut game = make_game(vec![
-      Player {
-        team: Team::Re,
-        cards: vec![],
-        won_tricks: vec![
-          (PlayerIndex(0), Card::new(Suit::Heart, Rank::Ace));
-          12
-        ]
-        .into_iter()
-        .map(|card| vec![card])
-        .collect(),
-      },
-      player_with_cards(vec![]),
-      player_with_cards(vec![]),
-      player_with_cards(vec![]),
-    ]);
-
-    game.dispatch(Action::EndGame).unwrap();
-
-    assert_eq!(game.game_winners, vec![PlayerIndex(0)]);
-  }
-
-  #[test]
-  fn rejects_end_game_when_players_still_have_cards() {
-    let game = make_game(vec![
-      player_with_cards(vec![Card::new(Suit::Club, Rank::Nine)]),
-      player_with_cards(vec![]),
-      player_with_cards(vec![]),
-      player_with_cards(vec![]),
-    ]);
-
-    assert_eq!(
-      game.can_dispatch(&Action::EndGame),
-      Some(InvalidDispatch::InvalidEnd)
-    );
+    assert_eq!(game.can_dispatch(&action), Some(DispatchError::InvalidCard));
   }
 
   #[test]
@@ -404,7 +438,7 @@ mod tests {
 
     assert_eq!(
       finished_game.can_dispatch(&action),
-      Some(InvalidDispatch::GameEnded)
+      Some(DispatchError::GameEnded)
     );
   }
 
@@ -416,7 +450,8 @@ mod tests {
       player_with_cards(vec![]),
       player_with_cards(vec![]),
     ]);
-    game.trick = vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
+    game.current_trick =
+      vec![(PlayerIndex(0), Card::new(Suit::Club, Rank::Nine))];
 
     let action = Action::PlayCard {
       player: PlayerIndex(1),
@@ -482,7 +517,7 @@ mod tests {
       ]),
       player_with_cards(vec![Card::new(Suit::Club, Rank::Ten)]),
     ]);
-    game.wedding = Some(PlayerIndex(2));
+    game.wedding_declarer = Some(PlayerIndex(2));
 
     game
       .dispatch(Action::PlayCard {
@@ -524,7 +559,7 @@ mod tests {
       ]),
       player_with_cards(vec![Card::new(Suit::Club, Rank::King)]),
     ]);
-    game.wedding = Some(PlayerIndex(2));
+    game.wedding_declarer = Some(PlayerIndex(2));
 
     game
       .dispatch(Action::PlayCard {
