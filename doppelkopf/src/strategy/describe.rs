@@ -99,7 +99,8 @@ fn describe_player(player: PlayerIndex, game: &Game) -> String {
 pub fn describe_game_state(player: PlayerIndex, game: &Game) -> String {
   if game.game_winners().len() > 0 {
     format!(
-      "The game has ended. Players {} have won with {} points.",
+      "The game has ended. Team {} with players {} has won with {} points.",
+      game.player(game.game_winners()[0]).unwrap().team(),
       game
         .game_winners()
         .iter()

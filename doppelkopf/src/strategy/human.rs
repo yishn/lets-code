@@ -17,7 +17,7 @@ impl HumanStrategy {
 }
 
 impl Strategy for HumanStrategy {
-  async fn generate_dispatch(&self, game: &Game) -> Result<Action> {
+  async fn generate_dispatch(&mut self, game: &Game) -> Result<Action> {
     if game.has_ended() {
       return Err(GenerateDispatchError::GameEnded.into());
     } else {
@@ -68,8 +68,7 @@ impl Strategy for HumanStrategy {
 #[tokio::test]
 async fn test() -> Result<()> {
   let mut game = Game::new();
-
-  let strategy = HumanStrategy {
+  let mut strategy = HumanStrategy {
     player: PlayerIndex(0),
   };
 
