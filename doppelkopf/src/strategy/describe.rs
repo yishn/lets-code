@@ -1,10 +1,10 @@
 use crate::core::{Game, PlayerIndex};
 
-fn describe_players(player: PlayerIndex, game: &Game) -> String {
+fn describe_players(player: PlayerIndex, _game: &Game) -> String {
   format!("There are four players. You are player {}.", player)
 }
 
-fn describe_trumps(player: PlayerIndex, game: &Game) -> String {
+fn describe_trumps(_player: PlayerIndex, game: &Game) -> String {
   format!(
     "In the current game the following cards are trumps, ordered from highest to lowest:\n{}",
     game
@@ -20,7 +20,7 @@ fn describe_trumps(player: PlayerIndex, game: &Game) -> String {
   )
 }
 
-fn describe_last_trick(player: PlayerIndex, game: &Game) -> String {
+fn describe_last_trick(_player: PlayerIndex, game: &Game) -> String {
   match (game.last_winner(), game.last_trick()) {
     (Some(last_winner), Some(last_trick)) => format!(
       "Last trick was won by player {}. He won the following trick:\n{}",
@@ -42,7 +42,7 @@ fn describe_last_trick(player: PlayerIndex, game: &Game) -> String {
   }
 }
 
-fn describe_wedding(player: PlayerIndex, game: &Game) -> String {
+fn describe_wedding(_player: PlayerIndex, game: &Game) -> String {
   if let Some(declarer) = game.wedding_declarer() {
     format!(
       "A wedding is underway. Player {} is looking for a partner.",
@@ -53,7 +53,7 @@ fn describe_wedding(player: PlayerIndex, game: &Game) -> String {
   }
 }
 
-fn describe_current_trick(player: PlayerIndex, game: &Game) -> String {
+fn describe_current_trick(_player: PlayerIndex, game: &Game) -> String {
   format!(
     "The current trick consists of the following cards so far:\n{}",
     game
