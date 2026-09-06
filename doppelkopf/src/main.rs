@@ -117,7 +117,7 @@ async fn ai_vs_monte_carlo() -> Result<()> {
     .map(|player| (player, game.player(player).unwrap()))
     .map(|(id, player)| match player.team() {
       Team::Re => {
-        GenericStrategy::MonteCarlo(MonteCarloStrategy::new(id, 25000))
+        GenericStrategy::MonteCarlo(MonteCarloStrategy::new(id, 50000))
       }
       Team::Contra => GenericStrategy::AI(AIStrategy::new(id).unwrap()),
     })
