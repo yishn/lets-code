@@ -3,8 +3,8 @@ use crate::core::{
   TotalOrderedCard,
   card::{OrderedCard, Rank, Suit},
 };
-use rand::seq::SliceRandom;
-use std::{error::Error, fmt::Display};
+use rand::seq::{IteratorRandom, SliceRandom};
+use std::{collections::HashSet, error::Error, fmt::Display};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Team {
@@ -154,12 +154,75 @@ impl Game {
     }
   }
 
+  pub fn from_game_randomized(
+    game: &Game,
+    player_id: PlayerIndex,
+    re_team: &HashSet<PlayerIndex>,
+  ) -> Option<Self> {
+    game.player(player_id).map(|_| {
+      let mut result = game.clone();
+
+      macro_rules! other_players {
+        () => {
+          result
+            .players
+            .iter_mut()
+            .enumerate()
+            .filter(move |(i, _)| i != &player_id.0)
+            .map(|(i, player)| (PlayerIndex(i), player))
+        };
+      }
+
+      let mut cards = other_players!()
+        .flat_map(|(_, player)| player.cards.drain(..))
+        .collect::<Vec<_>>();
+
+      cards.shuffle(&mut rand::rng());
+
+      for (i, player) in other_players!() {
+        player.team = Team::Contra;
+
+        let count = game.player(i).unwrap().cards.len();
+        player.cards.extend(cards.drain(..count))
+      }
+
+      for &re_team_player in re_team {
+        result
+          .players
+          .get_mut(re_team_player.0)
+          .map(|player| player.team = Team::Re);
+      }
+
+      let missing_re_count = 2
+        - result
+          .players
+          .iter()
+          .filter(|player| player.team == Team::Re)
+          .count();
+
+      other_players!()
+        .sample(&mut rand::rng(), missing_re_count)
+        .iter_mut()
+        .for_each(|(_, player)| player.team = Team::Re);
+
+      result
+    })
+  }
+
   pub fn trumps(&self) -> &[Card] {
     &self.trumps
   }
 
   pub fn player(&self, player: PlayerIndex) -> Option<&Player> {
     self.players.get(player.0)
+  }
+
+  pub fn current_player(&self) -> PlayerIndex {
+    self
+      .current_trick
+      .last()
+      .map(|last| PlayerIndex((last.0.0 + 1) % 4))
+      .unwrap_or_else(|| self.last_winner.unwrap_or(PlayerIndex(0)))
   }
 
   pub fn wedding_declarer(&self) -> Option<PlayerIndex> {
@@ -201,13 +264,7 @@ impl Game {
 
         // 1. Check player turn
 
-        let current_player = self
-          .current_trick
-          .last()
-          .map(|last| PlayerIndex((last.0.0 + 1) % 4))
-          .unwrap_or_else(|| self.last_winner.unwrap_or(PlayerIndex(0)));
-
-        if player != &current_player {
+        if player != &self.current_player() {
           return Some(DispatchError::InvalidPlayer);
         }
 

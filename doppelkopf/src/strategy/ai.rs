@@ -33,7 +33,7 @@ impl AIStrategy {
 }
 
 impl Strategy for AIStrategy {
-  async fn generate_dispatch(&self, game: &Game) -> Result<Action> {
+  async fn generate_dispatch(&mut self, game: &Game) -> Result<Action> {
     if game.has_ended() {
       return Err(GenerateDispatchError::GameEnded.into());
     } else {

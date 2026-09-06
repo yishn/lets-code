@@ -1,10 +1,14 @@
 mod ai;
 mod describe;
 mod human;
+mod monte_carlo;
+mod random;
 
 pub use ai::*;
-pub use human::*;
 pub use describe::*;
+pub use human::*;
+pub use monte_carlo::*;
+pub use random::*;
 
 use crate::core::{Action, Game};
 use anyhow::Result;
@@ -28,5 +32,26 @@ impl Display for GenerateDispatchError {
 impl Error for GenerateDispatchError {}
 
 pub trait Strategy {
-  async fn generate_dispatch(&self, game: &Game) -> Result<Action>;
+  async fn generate_dispatch(&mut self, game: &Game) -> Result<Action>;
+}
+
+#[derive(Clone)]
+pub enum GenericStrategy {
+  Human(HumanStrategy),
+  AI(AIStrategy),
+  Random(RandomStrategy),
+  MonteCarlo(MonteCarloStrategy),
+}
+
+impl Strategy for GenericStrategy {
+  async fn generate_dispatch(&mut self, game: &Game) -> Result<Action> {
+    match self {
+      GenericStrategy::Human(val) => val.generate_dispatch(game).await,
+      GenericStrategy::AI(val) => val.generate_dispatch(game).await,
+      GenericStrategy::Random(val) => val.generate_dispatch(game).await,
+      GenericStrategy::MonteCarlo(val) => {
+        val.generate_dispatch(game).await
+      }
+    }
+  }
 }
